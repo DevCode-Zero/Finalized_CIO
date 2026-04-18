@@ -5,8 +5,7 @@ export interface Attendee {
   name: string;
   email: string;
   company: string;
-  title?: string;
-  location?: string;
+  image_url?: string;
   checked_in_at: string;
 }
 
@@ -61,6 +60,76 @@ export const db = {
       .single();
     if (error) throw error;
     return data as Attendee;
+  },
+
+  async addAttendees(attendees: { name: string; email: string; company: string }[]) {
+    const { data, error } = await supabase
+      .from("attendees")
+      .insert(attendees)
+      .select();
+    if (error) throw error;
+    return data as Attendee[];
+  },
+
+async uploadAttendeeImage(file: File, attendeeName: string): Promise<{ imageUrl: string; attendee: Attendee | null }> {
+    const fileName = `${attendeeName.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.${file.name.split('.').pop()}`;
+    
+    // Upload image to storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('attendee-images')
+      .upload(fileName, file);
+    
+    if (uploadError) {
+      console.error("Storage error:", uploadError);
+      throw new Error("Storage: " + uploadError.message);
+    }
+    
+    const { data: urlData } = supabase.storage.from('attendee-images').getPublicUrl(fileName);
+    const imageUrl = urlData.publicUrl;
+    
+    // Find existing attendee
+    const existingAttendees = await supabase.from('attendees').select('*').ilike('name', `%${attendeeName}%`);
+    let attendee = existingAttendees.data?.[0];
+    
+    if (!attendee) {
+      // Create new attendee
+      const { data: newAttendee, error: insertError } = await supabase.from('attendees').insert([{ name: attendeeName, email: '', company: '' }]).select().single();
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        throw new Error("Insert: " + insertError.message);
+      }
+      attendee = newAttendee as any;
+    }
+    
+    // Update with image URL
+    const { error: updateError } = await supabase.from('attendees').update({ image_url: imageUrl }).eq('id', attendee.id);
+    if (updateError) {
+      console.error("Update error:", updateError);
+      throw new Error("Update: " + updateError.message);
+    }
+    
+    const { data: updated } = await supabase.from('attendees').select('*').eq('id', attendee.id).single();
+    
+    return { imageUrl, attendee: updated as Attendee };
+  },
+
+  async updateAttendee(id: string, updates: { name?: string; email?: string; company?: string }) {
+    const { data, error } = await supabase
+      .from("attendees")
+      .update(updates)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as Attendee;
+  },
+
+  async deleteAttendee(id: string) {
+    const { error } = await supabase
+      .from("attendees")
+      .delete()
+      .eq("id", id);
+    if (error) throw error;
   },
 
   async getAttendees() {
