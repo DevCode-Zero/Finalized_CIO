@@ -25,6 +25,36 @@ export function GuestApp() {
     document.documentElement.classList.add("dark");
   }, []);
 
+  // Track presence when checked in - use just the name
+  useEffect(() => {
+    if (!attendee?.name) return;
+
+    const channel = supabase.channel(PRESENCE_CHANNEL, {
+      config: {
+        presence: { key: attendee.name }
+      }
+    });
+
+    channel.on('presence', { event: 'sync' }, () => {
+      console.log("[GuestApp] Presence sync:", channel.presenceState());
+    });
+
+    channel.subscribe((status, err) => {
+      console.log("[GuestApp] Subscription status:", status, err);
+      if (status === 'SUBSCRIBED') {
+        channel.track({ 
+          user_id: attendee.name,
+          online_at: new Date().toISOString(),
+        }).then(() => console.log("[GuestApp] Tracked:", attendee.name))
+          .catch(e => console.error("[GuestApp] Track error:", e));
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [attendee?.name]);
+
   const handleCheckIn = () => {
     setCurrentScreen("camera");
   };
@@ -32,17 +62,6 @@ export function GuestApp() {
   const handleAuthSuccess = (att: Attendee) => {
     setAttendee(att);
     localStorage.setItem("checkedInAttendee", JSON.stringify(att));
-
-    // Track presence
-    const channel = supabase.channel(PRESENCE_CHANNEL);
-    channel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        await channel.track({
-          user_id: att.name,
-          online_at: new Date().toISOString(),
-        });
-      }
-    });
 
     // ✅ go to success screen first
     setCurrentScreen("success");
