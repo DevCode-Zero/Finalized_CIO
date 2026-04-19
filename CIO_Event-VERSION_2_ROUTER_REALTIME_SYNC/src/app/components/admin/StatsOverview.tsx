@@ -41,22 +41,34 @@ export function StatsOverview() {
     return () => clearInterval(interval);
   }, []);
 
-  // Track live users with presence
+  // Track live users with presence (only checked-in attendees)
   useEffect(() => {
-    const channel = supabase.channel(PRESENCE_CHANNEL);
+    const channel = supabase.channel(PRESENCE_CHANNEL, {
+      config: {
+        presence: { key: 'stats-admin' }
+      }
+    });
 
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState();
-      const userCount = Object.values(state).flat().length;
-      setLiveUsers(userCount);
+      const allPresences = Object.values(state).flat() as { user_id?: string }[];
+      // Filter to only count guests (those with guest- prefix), exclude admin entries
+      const guestUsers = allPresences
+        .map(p => p.user_id)
+        .filter(Boolean)
+        .filter(id => !id.includes('-admin'));
+      const uniqueGuests = new Set(guestUsers);
+      console.log("[StatsOverview] Live guests:", uniqueGuests.size, Array.from(uniqueGuests));
+      setLiveUsers(uniqueGuests.size);
     });
 
-    channel.subscribe(async (status) => {
+    channel.subscribe((status, err) => {
+      console.log("[StatsOverview] Subscription status:", status, err);
       if (status === 'SUBSCRIBED') {
-        await channel.track({
-          user_id: Math.random().toString(36).substring(7),
-          online_at: new Date().toISOString(),
-        });
+        channel.track({ user_id: 'stats-admin' }).catch(e => console.error("[StatsOverview] Track error:", e));
+      }
+      if (status === 'CHANNEL_ERROR') {
+        console.error("[StatsOverview] Channel error:", err);
       }
     });
 
