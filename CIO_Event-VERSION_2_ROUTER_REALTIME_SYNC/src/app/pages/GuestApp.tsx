@@ -6,6 +6,7 @@ import { DashboardScreen } from "../components/DashboardScreen";
 import { QuestionScreen } from "../components/QuestionScreen";
 import { NotificationModal } from "../components/NotificationModal";
 import { type Attendee } from "../utils/database";
+import { supabase, PRESENCE_CHANNEL } from "../utils/supabaseClient";
 
 type Screen = "welcome" | "camera" | "success" | "dashboard" | "question";
 
@@ -31,6 +32,17 @@ export function GuestApp() {
   const handleAuthSuccess = (att: Attendee) => {
     setAttendee(att);
     localStorage.setItem("checkedInAttendee", JSON.stringify(att));
+
+    // Track presence
+    const channel = supabase.channel(PRESENCE_CHANNEL);
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track({
+          user_id: att.name,
+          online_at: new Date().toISOString(),
+        });
+      }
+    });
 
     // ✅ go to success screen first
     setCurrentScreen("success");
