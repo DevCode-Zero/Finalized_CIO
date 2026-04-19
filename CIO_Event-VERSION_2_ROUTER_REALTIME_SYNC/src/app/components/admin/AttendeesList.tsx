@@ -62,21 +62,24 @@ export function AttendeesList() {
 
   // Track online users
   useEffect(() => {
-    const channel = supabase.channel(PRESENCE_CHANNEL);
+    const channel = supabase.channel(PRESENCE_CHANNEL, {
+      config: {
+        presence: { key: 'attendees-list-admin' }
+      }
+    });
     
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState();
       const users = Object.values(state).flat() as { user_id: string; online_at: string }[];
       const names = users.map(u => u.user_id).filter(Boolean);
+      console.log("[AttendeesList] Online users:", names);
       setOnlineUsers(names);
     });
 
-    channel.subscribe(async (status) => {
+    channel.subscribe((status, err) => {
+      console.log("[AttendeesList] Subscription:", status, err);
       if (status === 'SUBSCRIBED') {
-        await channel.track({
-          user_id: 'admin',
-          online_at: new Date().toISOString(),
-        });
+        channel.track({ user_id: 'attendees-list-admin' }).catch(e => console.error(e));
       }
     });
 
