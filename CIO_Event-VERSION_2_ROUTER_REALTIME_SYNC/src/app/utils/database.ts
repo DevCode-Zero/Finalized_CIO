@@ -62,7 +62,7 @@ export const db = {
     return data as Attendee;
   },
 
-  async addAttendees(attendees: { name: string; email: string; company: string }[]) {
+async addAttendees(attendees: { name: string; email: string; company: string }[]) {
     const { data, error } = await supabase
       .from("attendees")
       .insert(attendees)
@@ -71,7 +71,12 @@ export const db = {
     return data as Attendee[];
   },
 
-async uploadAttendeeImage(file: File, attendeeName: string): Promise<{ imageUrl: string; attendee: Attendee | null }> {
+  async updateAttendeeImage(name: string, imageUrl: string) {
+    const { error } = await supabase.from('attendees').update({ image_url: imageUrl }).ilike('name', `%${name}%`);
+    if (error) throw error;
+  },
+
+  async uploadAttendeeImage(file: File, attendeeName: string): Promise<{ imageUrl: string }> {
     const fileName = `${attendeeName.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.${file.name.split('.').pop()}`;
     
     // Upload image to storage
@@ -87,30 +92,24 @@ async uploadAttendeeImage(file: File, attendeeName: string): Promise<{ imageUrl:
     const { data: urlData } = supabase.storage.from('attendee-images').getPublicUrl(fileName);
     const imageUrl = urlData.publicUrl;
     
-    // Find existing attendee
-    const existingAttendees = await supabase.from('attendees').select('*').ilike('name', `%${attendeeName}%`);
-    let attendee = existingAttendees.data?.[0];
-    
-    if (!attendee) {
-      // Create new attendee
-      const { data: newAttendee, error: insertError } = await supabase.from('attendees').insert([{ name: attendeeName, email: '', company: '' }]).select().single();
-      if (insertError) {
-        console.error("Insert error:", insertError);
-        throw new Error("Insert: " + insertError.message);
-      }
-      attendee = newAttendee as any;
+    // Enroll face in recognition system
+    try {
+      const formData = new FormData();
+      formData.append("name", attendeeName);
+      formData.append("images", file);
+      
+      const enrollRes = await fetch("http://localhost:5001/enroll", {
+        method: "POST",
+        body: formData
+      });
+      
+      const enrollResult = await enrollRes.json();
+      console.log("Face enrolled:", enrollResult);
+    } catch (enrollErr) {
+      console.error("Face enrollment error:", enrollErr);
     }
     
-    // Update with image URL
-    const { error: updateError } = await supabase.from('attendees').update({ image_url: imageUrl }).eq('id', attendee.id);
-    if (updateError) {
-      console.error("Update error:", updateError);
-      throw new Error("Update: " + updateError.message);
-    }
-    
-    const { data: updated } = await supabase.from('attendees').select('*').eq('id', attendee.id).single();
-    
-    return { imageUrl, attendee: updated as Attendee };
+    return { imageUrl };
   },
 
   async updateAttendee(id: string, updates: { name?: string; email?: string; company?: string }) {
@@ -125,11 +124,29 @@ async uploadAttendeeImage(file: File, attendeeName: string): Promise<{ imageUrl:
   },
 
   async deleteAttendee(id: string) {
+    // Get attendee name first
+    const { data: attendee } = await supabase.from('attendees').select('name').eq('id', id).single();
+    const name = attendee?.name;
+    
+    // Delete from database
     const { error } = await supabase
       .from("attendees")
       .delete()
       .eq("id", id);
     if (error) throw error;
+    
+    // Remove from face recognition system
+    if (name) {
+      try {
+        await fetch("http://localhost:5001/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name })
+        });
+      } catch (enrollErr) {
+        console.error("Face removal error:", enrollErr);
+      }
+    }
   },
 
   async getAttendees() {

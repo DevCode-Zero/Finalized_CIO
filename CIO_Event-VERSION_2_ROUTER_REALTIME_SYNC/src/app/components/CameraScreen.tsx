@@ -303,38 +303,28 @@ export function CameraScreen({ onSuccess }: CameraScreenProps) {
         }
         return;
       }
-      // ✅ SUCCESS
-      onSuccess({
-        id: "id-" + Date.now(),
-        name: best.name
-      } as Attendee);
-
       const finalName = best.name;
-
 
       const attendees = await db.getAttendees();
 
       const matched = attendees.find(
-        (a) => a.name.toLowerCase() === finalName.toLowerCase()
+        (a) => 
+          a.name.toLowerCase() === finalName.toLowerCase() ||
+          a.name.toLowerCase().includes(finalName.toLowerCase()) ||
+          finalName.toLowerCase().includes(a.name.toLowerCase())
       );
 
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      // if (matched) {
-      //   onSuccess(matched);
-      // } else {
-      //   onSuccess({
-      //     id: "guest-" + Date.now(),
-      //     name: finalName
-      //   } as Attendee);
-      // }
       if (matched) {
         onSuccess(matched);
       } else {
-        setStatus("error");
-        setErrorMessage("Contact your admin");
+        onSuccess({
+          id: "guest-" + Date.now(),
+          name: finalName
+        } as Attendee);
       }
 
     } catch (err) {

@@ -99,19 +99,26 @@ export function AttendeesList() {
           company: formData.company.trim(),
         });
       } else {
-        const newAttendee = await db.addAttendee(
+        await db.addAttendee(
           formData.name.trim(),
           formData.email.trim(),
           formData.company.trim()
         );
         if (previewImage) {
-          await db.uploadAttendeeImage(previewImage, formData.name.trim());
+          const result = await db.uploadAttendeeImage(previewImage, formData.name.trim());
+          if (result?.imageUrl) {
+            await db.updateAttendeeImage(formData.name.trim(), result.imageUrl);
+          }
         }
       }
-      alert(editingAttendee ? "Attendee updated!" : "Attendee added!");
+      const message = editingAttendee ? "Attendee updated!" : "Attendee added!";
       setShowModal(false);
       setPreviewImage(null);
-      loadAttendees();
+      // Show alert first, then reload after a short delay
+      setTimeout(() => {
+        loadAttendees();
+      }, 500);
+      alert(message);
     } catch (err: any) {
       console.error("Failed to save attendee:", err);
       alert("Failed to save attendee: " + (err?.message || err || "Unknown error"));
@@ -119,10 +126,22 @@ export function AttendeesList() {
     setSubmitting(false);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, name: string) => {
     if (!confirm("Are you sure you want to delete this attendee?")) return;
     setDeletingId(id);
     try {
+      // Remove from face recognition first
+      try {
+        await fetch("http://localhost:5001/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name })
+        });
+      } catch (faceErr) {
+        console.error("Face removal error:", faceErr);
+      }
+      
+      // Delete from database
       await db.deleteAttendee(id);
       loadAttendees();
     } catch (err) {
@@ -218,7 +237,7 @@ const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => 
     setShowImageModal(true);
   };
 
-  const uploadAllImages = async () => {
+const uploadAllImages = async () => {
     console.log("Starting upload, files:", selectedImages.length);
     setImageUploading(true);
     let updated = 0;
@@ -226,33 +245,37 @@ const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => 
     let errors = 0;
     
     try {
-      const results = await Promise.all(selectedImages.map(async (file) => {
+      for (const file of selectedImages) {
         const fileName = file.name.replace(/\.[^/.]+$/, "");
-        console.log("Uploading:", fileName);
+        console.log("Processing:", fileName);
         
         try {
+          // Check if attendee exists
+          const existing = attendees.find(a => a.name.toLowerCase() === fileName.toLowerCase());
+          
+          if (!existing) {
+            // Create new attendee in database
+            await db.addAttendee(fileName, "", "");
+          }
+          
+          // Upload image and enroll face
           const result = await db.uploadAttendeeImage(file, fileName);
-          console.log("Uploaded:", fileName, result);
-          return { success: true, fileName, result };
-        } catch (err: any) {
-          console.error("Failed to upload:", file.name, err);
-          return { success: false, fileName, error: err };
-        }
-      }));
-      
-      results.forEach(r => {
-        if (r.success) {
-          const existing = attendees.find(a => a.name.toLowerCase() === r.fileName.toLowerCase());
+          
+          if (result?.imageUrl) {
+            await db.updateAttendeeImage(fileName, result.imageUrl);
+          }
+          
           if (existing) {
             updated++;
           } else {
             created++;
           }
-        } else {
+        } catch (err: any) {
+          console.error("Failed to upload:", file.name, err);
           errors++;
         }
-      });
-      
+      }
+       
       alert(`Done! Updated: ${updated}, Created: ${created}, Errors: ${errors}`);
       loadAttendees();
     } catch (err: any) {
@@ -398,15 +421,14 @@ const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => 
                       </p>
                     </div>
 
-                    {(() => {
+{(() => {
                       if (!attendee.checked_in_at) return null;
                       const checkInTime = new Date(attendee.checked_in_at);
                       const now = new Date();
-                      const diffMs = now.getTime() - checkInTime.getTime();
-                      const diffMins = diffMs / (1000 * 60);
-                      const diffHours = diffMs / (1000 * 60 * 60);
+                      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                      const checkInDate = new Date(checkInTime.getFullYear(), checkInTime.getMonth(), checkInTime.getDate());
                       
-                      if (diffHours <= 24) {
+                      if (checkInDate.getTime() === today.getTime()) {
                         return (
                           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-full">
                             <CheckCircle2 className="w-4 h-4 text-primary" />
@@ -427,7 +449,7 @@ const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => 
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(attendee.id)}
+                        onClick={() => handleDelete(attendee.id, attendee.name)}
                         disabled={deletingId === attendee.id}
                         className="p-2 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"
                         title="Delete"
