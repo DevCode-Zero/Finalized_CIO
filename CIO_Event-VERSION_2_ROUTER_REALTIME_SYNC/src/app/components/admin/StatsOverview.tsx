@@ -19,7 +19,15 @@ export function StatsOverview() {
         const responses = await db.getTotalResponses();
         
         setTotalAttendees(attendees.length);
-        setCheckedIn(attendees.filter(a => a.checked_in_at).length);
+        // Count only today's check-ins
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const todayCheckins = attendees.filter(a => {
+          if (!a.checked_in_at) return false;
+          const checkInDate = new Date(a.checked_in_at);
+          return checkInDate >= today;
+        }).length;
+        setCheckedIn(todayCheckins);
         setQuestionsPushed(questions.filter(q => q.status === "sent").length);
         setTotalResponses(responses);
       } catch (err) {
@@ -33,23 +41,24 @@ export function StatsOverview() {
     return () => clearInterval(interval);
   }, []);
 
+  // Track live users with presence
   useEffect(() => {
     const channel = supabase.channel(PRESENCE_CHANNEL);
 
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        const userCount = Object.values(state).flat().length;
-        setLiveUsers(userCount);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.track({
-            user_id: Math.random().toString(36).substring(7),
-            online_at: new Date().toISOString(),
-          });
-        }
-      });
+    channel.on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState();
+      const userCount = Object.values(state).flat().length;
+      setLiveUsers(userCount);
+    });
+
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track({
+          user_id: Math.random().toString(36).substring(7),
+          online_at: new Date().toISOString(),
+        });
+      }
+    });
 
     return () => {
       supabase.removeChannel(channel);
