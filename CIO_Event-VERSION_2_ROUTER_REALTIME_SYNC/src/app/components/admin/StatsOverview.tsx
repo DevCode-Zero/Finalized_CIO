@@ -10,6 +10,7 @@ export function StatsOverview() {
   const [questionsPushed, setQuestionsPushed] = useState(0);
   const [totalResponses, setTotalResponses] = useState(0);
   const [liveUsers, setLiveUsers] = useState(0);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -18,20 +19,23 @@ export function StatsOverview() {
         const questions = await db.getQuestions();
         const responses = await db.getTotalResponses();
         
-        setTotalAttendees(attendees.length);
-        // Count only today's check-ins
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const todayCheckins = attendees.filter(a => {
-          if (!a.checked_in_at) return false;
-          const checkInDate = new Date(a.checked_in_at);
-          return checkInDate >= today;
-        }).length;
-        setCheckedIn(todayCheckins);
-        setQuestionsPushed(questions.filter(q => q.status === "sent").length);
+        console.log("[Stats] Raw data - attendees:", attendees, "questions:", questions, "responses:", responses);
+        
+        setTotalAttendees(attendees?.length || 0);
+        
+        // Count all attendees with checked_in_at
+        const checkedInCount = attendees?.filter(a => a.checked_in_at).length || 0;
+        const questionsSentCount = questions?.filter(q => q.status === "sent").length || 0;
+        
+        console.log("[Stats] Processed - checkedIn:", checkedInCount, "questionsPushed:", questionsSentCount, "responses:", responses);
+        
+        setCheckedIn(checkedInCount);
+        setQuestionsPushed(questionsSentCount);
         setTotalResponses(responses);
+        setLoaded(true);
       } catch (err) {
         console.error("Failed to load stats:", err);
+        setLoaded(true);
       }
     };
     
